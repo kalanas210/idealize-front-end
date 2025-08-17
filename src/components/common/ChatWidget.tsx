@@ -1,8 +1,54 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MessageCircle, X, Send, Bot } from 'lucide-react';
+import LiveChatWidget from './LiveChatWidget';
+import liveChatConfig from '../../config/liveChatConfig';
 
 const ChatWidget = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [customerInfo, setCustomerInfo] = useState({
+    name: 'Guest',
+    email: '',
+    avatar: ''
+  });
+
+  // Handle chat events
+  const handleChatStart = (chatId: string) => {
+    console.log('Chat started:', chatId);
+    // You can track chat analytics here
+  };
+
+  const handleChatEnd = (chatId: string) => {
+    console.log('Chat ended:', chatId);
+    // You can track chat completion here
+  };
+
+  const handleMessageSent = (message: string) => {
+    console.log('Message sent:', message);
+    // You can track message analytics here
+  };
+
+  const handleAgentJoin = (agent: any) => {
+    console.log('Agent joined:', agent);
+    // You can update UI when agent joins
+  };
+
+  // Use LiveChat if configured, otherwise fallback to basic chat
+  if (liveChatConfig && liveChatConfig.license && liveChatConfig.license !== 'demo_license_key') {
+    return (
+      <LiveChatWidget
+        license={liveChatConfig.license}
+        group={liveChatConfig.group}
+        customer={customerInfo}
+        theme={liveChatConfig.theme}
+        onChatStart={handleChatStart}
+        onChatEnd={handleChatEnd}
+        onMessageSent={handleMessageSent}
+        onAgentJoin={handleAgentJoin}
+      />
+    );
+  }
+
+  // Fallback to basic chat functionality
   const [messages, setMessages] = useState([
     {
       id: 1,

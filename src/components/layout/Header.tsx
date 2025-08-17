@@ -2,11 +2,25 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { Search, Menu, X } from 'lucide-react';
 import { SignedIn, SignedOut, UserButton, SignInButton } from '@clerk/clerk-react';
+import { useUserProfile } from '../../contexts/UserContext';
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const location = useLocation();
+  const { userProfile, isLoading } = useUserProfile();
+  
+  // Debug: Log user profile state
+  console.log('Header - User Profile:', { userProfile, isLoading });
+  console.log('Header - Role check:', { 
+    role: userProfile?.role, 
+    shouldShowBeASeller: userProfile?.role !== 'seller',
+    isLoading 
+  });
+  
+  // Also check localStorage for debugging
+  const storedRole = localStorage.getItem('userRole');
+  console.log('Header - localStorage role:', storedRole);
 
   const navigation = [
     { name: 'Explore', href: '/explore' },
@@ -58,13 +72,32 @@ const Header = () => {
                 {item.name}
               </Link>
             ))}
-            {/* Be a Seller Button */}
-            <Link
-              to="/become-seller"
-              className="ml-4 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors duration-200 shadow"
-            >
-              Be a Seller
-            </Link>
+            {/* Be a Seller Button - Only show if user is not already a seller */}
+            {!isLoading && userProfile && userProfile.role !== 'seller' && (
+              <Link
+                to="/become-seller"
+                className="ml-4 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 transition-colors duration-200 shadow"
+              >
+                Be a Seller
+              </Link>
+            )}
+            
+            {/* Seller Dashboard Link - Show if user is already a seller */}
+            {!isLoading && userProfile && userProfile.role === 'seller' && (
+              <Link
+                to="/seller-dashboard"
+                className="ml-4 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 transition-colors duration-200 shadow"
+              >
+                Seller Dashboard
+              </Link>
+            )}
+            
+            {/* Loading state for buttons */}
+            {isLoading && (
+              <div className="ml-4 px-4 py-2 rounded-lg bg-gray-300 text-gray-500 text-sm font-semibold animate-pulse">
+                Loading...
+              </div>
+            )}
           </nav>
 
           {/* User Actions & Mobile Menu Button */}
@@ -139,14 +172,34 @@ const Header = () => {
               {item.name}
             </Link>
           ))}
-          {/* Be a Seller Button (Mobile) */}
-          <Link
-            to="/become-seller"
-            className="block mt-2 text-center px-4 py-2 rounded-lg bg-slate-900 text-white font-semibold hover:bg-slate-800 transition-colors duration-200 shadow"
-            onClick={() => setIsMenuOpen(false)}
-          >
-            Be a Seller
-          </Link>
+          {/* Be a Seller Button (Mobile) - Only show if user is not already a seller */}
+          {!isLoading && userProfile && userProfile.role !== 'seller' && (
+            <Link
+              to="/become-seller"
+              className="block mt-2 text-center px-4 py-2 rounded-lg bg-slate-900 text-white font-semibold hover:bg-slate-800 transition-colors duration-200 shadow"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Be a Seller
+            </Link>
+          )}
+          
+          {/* Seller Dashboard Link (Mobile) - Show if user is already a seller */}
+          {!isLoading && userProfile && userProfile.role === 'seller' && (
+            <Link
+              to="/seller-dashboard"
+              className="block mt-2 text-center px-4 py-2 rounded-lg bg-green-600 text-white font-semibold hover:bg-green-700 transition-colors duration-200 shadow"
+              onClick={() => setIsMenuOpen(false)}
+            >
+              Seller Dashboard
+            </Link>
+          )}
+          
+          {/* Loading state for mobile buttons */}
+          {isLoading && (
+            <div className="block mt-2 text-center px-4 py-2 rounded-lg bg-gray-300 text-gray-500 font-semibold animate-pulse">
+              Loading...
+            </div>
+          )}
         </div>
         <div className="px-4 pb-6">
           <SignedOut>

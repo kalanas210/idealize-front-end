@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@clerk/clerk-react';
 import { 
   Upload, 
   X, 
@@ -23,6 +25,7 @@ import {
   Target,
   Award
 } from 'lucide-react';
+import { API_ENDPOINTS } from '../config/api';
 
 const CreateGig = () => {
   const [activeStep, setActiveStep] = useState(1);
@@ -31,7 +34,7 @@ const CreateGig = () => {
     category: '',
     subcategory: '',
     platform: '',
-    description: '',
+    description: 'I will create high-quality content that meets your specific needs and requirements. My expertise includes professional design, strategic planning, and timely delivery to ensure your project succeeds.',
     tags: [],
     images: [],
     video: null,
@@ -39,37 +42,46 @@ const CreateGig = () => {
       {
         id: 'basic',
         name: 'Basic',
-        description: '',
-        price: '',
+        description: 'Essential package with core features and quick delivery',
+        price: '25',
         deliveryTime: '3',
         revisions: '1',
-        features: ['']
+        features: ['Core service delivery', 'Basic support', 'Standard quality']
       },
       {
         id: 'standard',
         name: 'Standard',
-        description: '',
-        price: '',
+        description: 'Popular choice with enhanced features and priority support',
+        price: '50',
         deliveryTime: '5',
         revisions: '2',
-        features: ['']
+        features: ['Enhanced features', 'Priority support', 'Source files included', 'Better quality']
       },
       {
         id: 'premium',
         name: 'Premium',
-        description: '',
-        price: '',
+        description: 'Complete solution with all features and premium support',
+        price: '100',
         deliveryTime: '7',
         revisions: '3',
-        features: ['']
+        features: ['All features included', 'Premium support', 'Source files', 'Highest quality', 'Custom modifications']
       }
     ],
-    requirements: [''],
-    faq: [{ question: '', answer: '' }]
+    requirements: ['Please provide your project requirements and any specific guidelines you have'],
+    faq: [{ 
+      question: 'What information do you need to start?', 
+      answer: 'I need your project brief, target audience, brand guidelines, and any specific requirements or preferences you have for the project.' 
+    }]
   });
 
   const [currentTag, setCurrentTag] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  
+  const navigate = useNavigate();
+  const { getToken } = useAuth();
 
   const categories = [
     { value: 'technology', label: 'Technology' },
@@ -128,6 +140,8 @@ const CreateGig = () => {
       ...prev,
       [field]: value
     }));
+    // Clear error messages when user starts typing
+    if (error) setError('');
   };
 
   const handlePackageChange = (packageId: string, field: string, value: any) => {
@@ -178,6 +192,13 @@ const CreateGig = () => {
     }));
   };
 
+  const removeImage = (index: number) => {
+    setGigData(prev => ({
+      ...prev,
+      images: prev.images.filter((_, i) => i !== index)
+    }));
+  };
+
   const updateFeature = (packageId: string, index: number, value: string) => {
     setGigData(prev => ({
       ...prev,
@@ -220,6 +241,42 @@ const CreateGig = () => {
     }));
   };
 
+  const handleVideoUpload = async (file: File) => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError('Please sign in to upload video');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(API_ENDPOINTS.UPLOAD.SINGLE, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+
+      const result = await response.json();
+      
+      if (response.ok && result.success) {
+        setGigData(prev => ({
+          ...prev,
+          video: result.data.url
+        }));
+        setSuccess('Video uploaded successfully!');
+      } else {
+        setError(result.message || 'Video upload failed');
+      }
+    } catch (err) {
+      console.error('Error uploading video:', err);
+      setError('Failed to upload video. Please try again.');
+    }
+  };
+
   const removeFAQ = (index: number) => {
     setGigData(prev => ({
       ...prev,
@@ -256,21 +313,83 @@ const CreateGig = () => {
     }
   };
 
-  const handleFiles = (files: FileList) => {
+  const handleFiles = async (files: FileList) => {
     const fileArray = Array.from(files);
-    // Handle file upload logic here
-    console.log('Files to upload:', fileArray);
+    
+    console.log('📁 Frontend: Files to upload:', fileArray.map(f => ({
+      name: f.name,
+      type: f.type,
+      size: f.size
+    })));
+    
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError('Please sign in to upload files');
+        return;
+      }
+
+      // Upload each file
+      const uploadPromises = fileArray.map(async (file) => {
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        console.log('📁 Frontend: Uploading file:', {
+          name: file.name,
+          type: file.type,
+          size: file.size
+        });
+        
+        const response = await fetch(API_ENDPOINTS.UPLOAD.SINGLE, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+
+        console.log('📁 Frontend: Upload response status:', response.status);
+        
+        const result = await response.json();
+        console.log('📁 Frontend: Upload response:', result);
+        
+        if (response.ok && result.success) {
+          return result.data.url;
+        } else {
+          throw new Error(result.message || result.error?.message || 'Upload failed');
+        }
+      });
+
+      const uploadedUrls = await Promise.all(uploadPromises);
+      
+      // Add uploaded files to gig data
+      setGigData(prev => ({
+        ...prev,
+        images: [...prev.images, ...uploadedUrls]
+      }));
+
+      setSuccess(`${uploadedUrls.length} files uploaded successfully!`);
+    } catch (err) {
+      console.error('Error uploading files:', err);
+      setError('Failed to upload files. Please try again.');
+    }
   };
 
   const nextStep = () => {
     if (activeStep < steps.length) {
       setActiveStep(activeStep + 1);
+      // Clear messages when moving to next step
+      setError('');
+      setSuccess('');
     }
   };
 
   const prevStep = () => {
     if (activeStep > 1) {
       setActiveStep(activeStep - 1);
+      // Clear messages when moving to previous step
+      setError('');
+      setSuccess('');
     }
   };
 
@@ -288,6 +407,216 @@ const CreateGig = () => {
         return true; // Gallery is optional
       default:
         return true;
+    }
+  };
+
+  // Transform gig data to match backend API format
+  const transformGigData = () => {
+    // Ensure all required fields have valid values
+    const transformed = {
+      gigTitle: gigData.title || 'Untitled Gig',
+      category: gigData.category || 'technology',
+      platform: gigData.platform || 'youtube',
+      tags: gigData.tags.length > 0 ? gigData.tags : ['content creation'],
+      pricing: {
+        basic: {
+          packageName: gigData.packages[0]?.name || 'Basic',
+          description: gigData.packages[0]?.description || 'Essential package with core features',
+          price: parseFloat(gigData.packages[0]?.price || '25'),
+          delivery: parseInt(gigData.packages[0]?.deliveryTime || '3'),
+          revision: parseInt(gigData.packages[0]?.revisions || '1'),
+          features: (gigData.packages[0]?.features || ['Core service']).filter(f => f.trim())
+        },
+        standard: {
+          packageName: gigData.packages[1]?.name || 'Standard',
+          description: gigData.packages[1]?.description || 'Popular choice with enhanced features',
+          price: parseFloat(gigData.packages[1]?.price || '50'),
+          delivery: parseInt(gigData.packages[1]?.deliveryTime || '5'),
+          revision: parseInt(gigData.packages[1]?.revisions || '2'),
+          features: (gigData.packages[1]?.features || ['Enhanced features']).filter(f => f.trim())
+        },
+        premium: {
+          packageName: gigData.packages[2]?.name || 'Premium',
+          description: gigData.packages[2]?.description || 'Complete solution with all features',
+          price: parseFloat(gigData.packages[2]?.price || '100'),
+          delivery: parseInt(gigData.packages[2]?.deliveryTime || '7'),
+          revision: parseInt(gigData.packages[2]?.revisions || '3'),
+          features: (gigData.packages[2]?.features || ['All features included']).filter(f => f.trim())
+        }
+      },
+      gigDescription: {
+        description: gigData.description || 'Professional content creation service with high quality and timely delivery.',
+        faq: (gigData.faq || []).filter(faq => faq.question?.trim() && faq.answer?.trim())
+      },
+      buyerRequirements: (gigData.requirements || []).filter(req => req?.trim()),
+      gallery: {
+        images: gigData.images || [],
+        video: gigData.video || null
+      }
+    };
+
+    // Ensure minimum requirements are met
+    if (transformed.gigDescription.description.length < 100) {
+      transformed.gigDescription.description = transformed.gigDescription.description + ' '.repeat(100 - transformed.gigDescription.description.length) + 'Additional details about our service quality, delivery process, and customer satisfaction guarantee.';
+    }
+
+    if (transformed.buyerRequirements.length === 0) {
+      transformed.buyerRequirements = ['Please provide your project requirements and any specific guidelines you have'];
+    }
+
+    if (transformed.gigDescription.faq.length === 0) {
+      transformed.gigDescription.faq = [{
+        question: 'What information do you need to start?',
+        answer: 'I need your project brief, target audience, brand guidelines, and any specific requirements or preferences you have for the project.'
+      }];
+    }
+
+    return transformed;
+  };
+
+  // Validate gig data before publishing
+  const validateGigData = () => {
+    const errors = [];
+
+    if (!gigData.title || gigData.title.length < 5) {
+      errors.push('Title must be at least 5 characters long');
+    }
+
+    if (!gigData.category) {
+      errors.push('Category is required');
+    }
+
+    if (!gigData.platform) {
+      errors.push('Platform is required');
+    }
+
+    if (!gigData.description || gigData.description.length < 100) {
+      errors.push('Description must be at least 100 characters long');
+    }
+
+    if (gigData.tags.length === 0) {
+      errors.push('At least one tag is required');
+    }
+
+    if (!gigData.packages.every(pkg => pkg.price && pkg.description)) {
+      errors.push('All packages must have price and description');
+    }
+
+    if (!gigData.requirements.every(req => req.trim())) {
+      errors.push('All requirements must be filled');
+    }
+
+    return errors;
+  };
+
+  // Handle gig publishing
+  const handlePublish = async () => {
+    const validationErrors = validateGigData();
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join(', '));
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError('Please sign in to create a gig');
+        return;
+      }
+
+      const transformedData = transformGigData();
+      
+      console.log('📝 Frontend: Publishing gig with data:', JSON.stringify(transformedData, null, 2));
+      
+      const response = await fetch(API_ENDPOINTS.GIG.CREATE, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(transformedData)
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setSuccess('Gig published successfully!');
+        setTimeout(() => {
+          navigate('/seller-dashboard');
+        }, 2000);
+      } else {
+        console.error('❌ Backend error response:', result);
+        const errorMessage = result.message || result.error?.message || 'Failed to publish gig';
+        if (result.error && Array.isArray(result.error)) {
+          // Show validation errors
+          const validationErrors = result.error.map((err: any) => `${err.path}: ${err.msg}`).join(', ');
+          setError(`Validation errors: ${validationErrors}`);
+        } else {
+          setError(errorMessage);
+        }
+      }
+    } catch (err) {
+      console.error('Error publishing gig:', err);
+      setError('An error occurred while publishing the gig');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handle saving as draft
+  const handleSaveDraft = async () => {
+    setIsSubmitting(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError('Please sign in to save a draft');
+        return;
+      }
+
+      const transformedData = transformGigData();
+      transformedData.status = 'draft'; // Mark as draft
+      
+      console.log('📝 Frontend: Saving draft with data:', JSON.stringify(transformedData, null, 2));
+      
+      const response = await fetch(API_ENDPOINTS.GIG.CREATE, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(transformedData)
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setSuccess('Draft saved successfully!');
+        setTimeout(() => {
+          navigate('/seller-dashboard');
+        }, 2000);
+      } else {
+        console.error('❌ Backend error response:', result);
+        const errorMessage = result.message || result.error?.message || 'Failed to save draft';
+        if (result.error && Array.isArray(result.error)) {
+          // Show validation errors
+          const validationErrors = result.error.map((err: any) => `${err.path}: ${err.msg}`).join(', ');
+          setError(`Validation errors: ${validationErrors}`);
+        } else {
+          setError(errorMessage);
+        }
+      }
+    } catch (err) {
+      console.error('Error saving draft:', err);
+      setError('An error occurred while saving the draft');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -846,6 +1175,32 @@ const CreateGig = () => {
                     </div>
                   </div>
 
+                  {/* Error Message */}
+                  {error && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-start space-x-3">
+                        <AlertCircle className="h-5 w-5 text-red-600 mt-0.5" />
+                        <div>
+                          <h4 className="text-sm font-medium text-red-900 mb-1">Error</h4>
+                          <p className="text-sm text-red-800">{error}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Success Message */}
+                  {success && (
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-start space-x-3">
+                        <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
+                        <div>
+                          <h4 className="text-sm font-medium text-green-900 mb-1">Success!</h4>
+                          <p className="text-sm text-green-800">{success}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                     <div className="flex items-start space-x-3">
                       <CheckCircle className="h-5 w-5 text-green-600 mt-0.5" />
@@ -859,12 +1214,20 @@ const CreateGig = () => {
                   </div>
 
                   <div className="flex items-center space-x-4">
-                    <button className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all duration-200 transform hover:scale-105 flex items-center justify-center space-x-2">
+                    <button 
+                      onClick={handlePublish}
+                      disabled={isSubmitting}
+                      className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all duration-200 transform hover:scale-105 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                       <Zap className="h-5 w-5" />
-                      <span>Publish Gig</span>
+                      <span>{isSubmitting ? 'Publishing...' : 'Publish Gig'}</span>
                     </button>
-                    <button className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200">
-                      Save as Draft
+                    <button 
+                      onClick={handleSaveDraft}
+                      disabled={isSubmitting}
+                      className="px-6 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isSubmitting ? 'Saving...' : 'Save as Draft'}
                     </button>
                   </div>
                 </div>
@@ -904,8 +1267,12 @@ const CreateGig = () => {
                     Next
                   </button>
                 ) : (
-                  <button className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200">
-                    Publish
+                  <button 
+                    onClick={handlePublish}
+                    disabled={isSubmitting}
+                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmitting ? 'Publishing...' : 'Publish'}
                   </button>
                 )}
               </div>

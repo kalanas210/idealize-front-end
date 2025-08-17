@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { API_ENDPOINTS, getFileUploadHeaders, getAuthHeaders } from '../config/api';
 import { 
   ArrowRight, 
   CheckCircle, 
@@ -31,6 +32,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useUser, useAuth, RedirectToSignIn } from "@clerk/clerk-react";
+import { useUserProfile } from "../contexts/UserContext";
 
 // Add types for social accounts
 interface SocialAccount {
@@ -71,6 +73,7 @@ interface BecomeSellerFormData {
 const BecomeSeller = () => {
   const { isSignedIn } = useUser();
   const { getToken } = useAuth();
+  const { updateUserRole, refetchProfile } = useUserProfile();
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<BecomeSellerFormData>({
@@ -273,16 +276,59 @@ const BecomeSeller = () => {
   const handleSubmit = async () => {
     setLoading(true);
     try {
+      // Client-side validation
+      const validationErrors: {[key: string]: string} = {};
+      
+      // Check bio length
+      if (!formData.description || formData.description.length < 20) {
+        validationErrors.description = 'Bio must be at least 20 characters long';
+      }
+      
+      // Check skills
+      if (!formData.skills || formData.skills.length === 0) {
+        validationErrors.skills = 'Please add at least one skill';
+      }
+      
+      // Check languages
+      if (!formData.languages || formData.languages.length === 0) {
+        validationErrors.languages = 'Please add at least one language';
+      }
+      
+      // Check required fields
+      if (!formData.firstName) {
+        validationErrors.firstName = 'First name is required';
+      }
+      if (!formData.lastName) {
+        validationErrors.lastName = 'Last name is required';
+      }
+      if (!formData.email) {
+        validationErrors.email = 'Email is required';
+      }
+      
+      if (Object.keys(validationErrors).length > 0) {
+        setErrors(validationErrors);
+        setLoading(false);
+        return;
+      }
+      
+      // Clear any previous errors
+      setErrors({});
+      
       const token = await getToken();
+      if (!token) {
+        alert('Please sign in to continue');
+        setLoading(false);
+        return;
+      }
 
       // 1. Upload profile photo if present
       let avatarUrl = '';
       if (formData.profileImage) {
         const form = new FormData();
         form.append('file', formData.profileImage);
-        const res = await fetch('/api/upload/single', {
+        const res = await fetch(API_ENDPOINTS.UPLOAD.SINGLE, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
+          headers: getFileUploadHeaders(token),
           body: form
         });
         const data = await res.json();
@@ -294,9 +340,9 @@ const BecomeSeller = () => {
       if (formData.portfolioItems && formData.portfolioItems.length > 0) {
         const form = new FormData();
         formData.portfolioItems.forEach((file: File) => form.append('files', file));
-        const res = await fetch('/api/upload/multiple', {
+        const res = await fetch(API_ENDPOINTS.UPLOAD.MULTIPLE, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
+          headers: getFileUploadHeaders(token),
           body: form
         });
         const data = await res.json();
@@ -304,30 +350,46 @@ const BecomeSeller = () => {
       }
 
       // 3. Upload verification docs (if any)
-      let verificationUrls: string[] = [];
-      if (formData.idDocument || formData.addressProof) {
+      let verificationDocs: { type: string; url: string }[] = [];
+      if (formData.idDocument) {
         const form = new FormData();
-        if (formData.idDocument) form.append('files', formData.idDocument);
-        if (formData.addressProof) form.append('files', formData.addressProof);
-        const res = await fetch('/api/upload/multiple', {
+        form.append('file', formData.idDocument);
+        const res = await fetch(API_ENDPOINTS.UPLOAD.SINGLE, {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
+          headers: getFileUploadHeaders(token),
           body: form
         });
         const data = await res.json();
-        verificationUrls = data?.data?.map((f: any) => f.url) || [];
+        if (data?.data?.url) {
+          verificationDocs.push({ type: 'id_document', url: data.data.url });
+        }
+      }
+      
+      if (formData.addressProof) {
+        const form = new FormData();
+        form.append('file', formData.addressProof);
+        const res = await fetch(API_ENDPOINTS.UPLOAD.SINGLE, {
+          method: 'POST',
+          headers: getFileUploadHeaders(token),
+          body: form
+        });
+        const data = await res.json();
+        if (data?.data?.url) {
+          verificationDocs.push({ type: 'address_proof', url: data.data.url });
+        }
       }
 
       // 4. Send all data to become-seller endpoint
-      const res = await fetch('/api/users/become-seller', {
+      const res = await fetch(API_ENDPOINTS.USER.BECOME_SELLER, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
+        headers: getAuthHeaders(token),
         body: JSON.stringify({
-          name: `${formData.firstName} ${formData.lastName}`,
+          firstName: formData.firstName,
+          lastName: formData.lastName,
+          email: formData.email,
           phone: formData.phone,
+          country: formData.country,
+          city: formData.city,
           professionalTitle: formData.professionalTitle,
           experience: formData.experience,
           bio: formData.description,
@@ -337,19 +399,41 @@ const BecomeSeller = () => {
           avatar: avatarUrl,
           socialAccounts: formData.socialAccounts,
           portfolio: portfolioUrls,
-          verificationDocs: verificationUrls
+          verificationDocs: verificationDocs
         })
       });
 
+      const result = await res.json();
       setLoading(false);
-      if (res.ok) {
+      
+      if (res.ok && result.success) {
+        console.log('✅ Seller registration successful, updating user role...');
+        
+        // Update user role to seller in context
+        updateUserRole('seller');
+        console.log('✅ User role updated in context');
+        
+        // Check localStorage to verify role was saved
+        const storedRole = localStorage.getItem('userRole');
+        console.log('🔍 localStorage role check:', storedRole);
+        
+        // Refetch user profile to ensure role is updated
+        console.log('🔄 Refetching user profile...');
+        await refetchProfile();
+        console.log('✅ User profile refetched');
+        
+        // Check localStorage again after refetch
+        const storedRoleAfter = localStorage.getItem('userRole');
+        console.log('🔍 localStorage role check after refetch:', storedRoleAfter);
+        
+        alert('Application submitted successfully! We will review your application and get back to you soon.');
         window.location.href = '/seller-dashboard';
       } else {
-        const error = await res.json();
-        alert(error?.error?.message || 'Failed to register as seller');
+        alert(result?.message || result?.error?.message || 'Failed to register as seller');
       }
     } catch (err) {
       setLoading(false);
+      console.error('Seller registration error:', err);
       alert('An error occurred. Please try again.');
     }
   };
@@ -569,9 +653,14 @@ const BecomeSeller = () => {
                     type="text"
                     value={formData.firstName}
                     onChange={(e) => handleInputChange('firstName', e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      errors.firstName ? 'border-red-300' : 'border-gray-300'
+                    }`}
                     placeholder="John"
                   />
+                  {errors.firstName && (
+                    <p className="text-sm text-red-500 mt-1">{errors.firstName}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -581,9 +670,14 @@ const BecomeSeller = () => {
                     type="text"
                     value={formData.lastName}
                     onChange={(e) => handleInputChange('lastName', e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      errors.lastName ? 'border-red-300' : 'border-gray-300'
+                    }`}
                     placeholder="Doe"
                   />
+                  {errors.lastName && (
+                    <p className="text-sm text-red-500 mt-1">{errors.lastName}</p>
+                  )}
                 </div>
               </div>
 
@@ -596,9 +690,14 @@ const BecomeSeller = () => {
                     type="email"
                     value={formData.email}
                     onChange={(e) => handleInputChange('email', e.target.value)}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      errors.email ? 'border-red-300' : 'border-gray-300'
+                    }`}
                     placeholder="john@example.com"
                   />
+                  {errors.email && (
+                    <p className="text-sm text-red-500 mt-1">{errors.email}</p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -690,15 +789,22 @@ const BecomeSeller = () => {
                   value={formData.description}
                   onChange={(e) => handleInputChange('description', e.target.value)}
                   rows={4}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  placeholder="Describe your expertise, experience, and what makes you unique..."
+                  className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none ${
+                    errors.description ? 'border-red-300' : 'border-gray-300'
+                  }`}
+                  placeholder="Describe your expertise, experience, and what makes you unique... (minimum 20 characters)"
                 />
-                <p className="text-sm text-gray-500 mt-1">{formData.description.length}/500 characters</p>
+                <p className={`text-sm mt-1 ${formData.description.length < 20 ? 'text-red-500' : 'text-gray-500'}`}>
+                  {formData.description.length}/500 characters (minimum 20 required)
+                </p>
+                {errors.description && (
+                  <p className="text-sm text-red-500 mt-1">{errors.description}</p>
+                )}
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Skills & Expertise
+                  Skills & Expertise *
                 </label>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {formData.skills.map((skill, index) => (
@@ -722,7 +828,9 @@ const BecomeSeller = () => {
                     value={currentSkill}
                     onChange={(e) => setCurrentSkill(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && addSkill()}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className={`flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      errors.skills ? 'border-red-300' : 'border-gray-300'
+                    }`}
                     placeholder="Add a skill..."
                   />
                   <button
@@ -746,6 +854,12 @@ const BecomeSeller = () => {
                     </button>
                   ))}
                 </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  {formData.skills.length} skills added (minimum 1 required)
+                </p>
+                {errors.skills && (
+                  <p className="text-sm text-red-500 mt-1">{errors.skills}</p>
+                )}
               </div>
 
               <div>
@@ -768,7 +882,7 @@ const BecomeSeller = () => {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Languages
+                  Languages *
                 </label>
                 <div className="flex flex-wrap gap-2 mb-3">
                   {formData.languages.map((language, index) => (
@@ -790,7 +904,9 @@ const BecomeSeller = () => {
                   <select
                     value={currentLanguage}
                     onChange={(e) => setCurrentLanguage(e.target.value)}
-                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className={`flex-1 px-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      errors.languages ? 'border-red-300' : 'border-gray-300'
+                    }`}
                   >
                     <option value="">Select a language</option>
                     {languageOptions.map((language) => (
@@ -805,6 +921,12 @@ const BecomeSeller = () => {
                     Add
                   </button>
                 </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  {formData.languages.length} languages added (minimum 1 required)
+                </p>
+                {errors.languages && (
+                  <p className="text-sm text-red-500 mt-1">{errors.languages}</p>
+                )}
               </div>
             </div>
           )}
