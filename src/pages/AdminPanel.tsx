@@ -17,7 +17,8 @@ import {
   Star,
   MapPin,
   Briefcase,
-  Clock
+  Clock,
+  LogOut
 } from 'lucide-react';
 
 interface SellerApplication {
@@ -57,16 +58,32 @@ const AdminPanel = () => {
   const [rejectionReason, setRejectionReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ type: 'approve' | 'reject', userId: string } | null>(null);
+  const [adminUser, setAdminUser] = useState<any>(null);
 
-  // Load seller applications
+  // Load admin user and seller applications
   useEffect(() => {
+    const storedAdminUser = localStorage.getItem('adminUser');
+    if (storedAdminUser) {
+      setAdminUser(JSON.parse(storedAdminUser));
+    }
     fetchSellerApplications();
   }, []);
+
+  const handleLogout = () => {
+    localStorage.removeItem('adminToken');
+    localStorage.removeItem('adminUser');
+    window.location.href = '/admin-login';
+  };
 
   const fetchSellerApplications = async () => {
     setIsLoading(true);
     try {
-      const token = 'dev-admin-token'; // Use consistent development token
+      const token = localStorage.getItem('adminToken');
+      
+      if (!token) {
+        window.location.href = '/admin-login';
+        return;
+      }
       
       console.log('🔄 Fetching seller applications...');
       const response = await fetch('http://localhost:5000/api/admin/seller-applications', {
@@ -81,8 +98,12 @@ const AdminPanel = () => {
       if (response.ok) {
         const data = await response.json();
         console.log('✅ Admin Panel - Applications loaded:', data);
-        console.log('📊 Number of applications:', data.data?.length || 0);
-        setApplications(data.data || []);
+        
+        // The API returns data.data.applications array
+        const applicationsArray = data.data?.applications || [];
+        
+        console.log('📊 Number of applications:', applicationsArray.length);
+        setApplications(applicationsArray);
       } else {
         const errorText = await response.text();
         console.error('❌ API Error:', response.status, errorText);
@@ -124,7 +145,7 @@ const AdminPanel = () => {
   const handleApprove = async (userId: string) => {
     setIsLoading(true);
     try {
-      const token = 'dev-admin-token';
+      const token = localStorage.getItem('adminToken');
       
       const response = await fetch(`http://localhost:5000/api/admin/seller-applications/${userId}/approve`, {
         method: 'POST',
@@ -167,7 +188,7 @@ const AdminPanel = () => {
 
     setIsLoading(true);
     try {
-      const token = 'dev-admin-token';
+      const token = localStorage.getItem('adminToken');
       
       const response = await fetch(`http://localhost:5000/api/admin/seller-applications/${pendingAction.userId}/reject`, {
         method: 'POST',
@@ -199,12 +220,12 @@ const AdminPanel = () => {
     }
   };
 
-  const filteredApplications = applications.filter(app => {
-    const matchesSearch = app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         app.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         app.professional_title.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredApplications = (Array.isArray(applications) ? applications : []).filter(app => {
+    const matchesSearch = app?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         app?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         app?.professional_title?.toLowerCase().includes(searchQuery.toLowerCase());
     
-    const matchesStatus = statusFilter === 'all' || app.status === statusFilter;
+    const matchesStatus = statusFilter === 'all' || app?.status === statusFilter;
     
     return matchesSearch && matchesStatus;
   });
@@ -248,9 +269,26 @@ const AdminPanel = () => {
       {/* Header */}
       <div className="bg-white shadow-sm border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-6">
-            <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
-            <p className="text-gray-600 mt-2">Manage users, seller applications, and platform settings</p>
+          <div className="py-6 flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Admin Panel</h1>
+              <p className="text-gray-600 mt-2">Manage users, seller applications, and platform settings</p>
+            </div>
+            <div className="flex items-center space-x-4">
+              {adminUser && (
+                <div className="text-right">
+                  <p className="text-sm font-medium text-gray-900">{adminUser.displayName}</p>
+                  <p className="text-xs text-gray-500">{adminUser.email}</p>
+                </div>
+              )}
+              <button
+                onClick={handleLogout}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                Logout
+              </button>
+            </div>
           </div>
         </div>
       </div>

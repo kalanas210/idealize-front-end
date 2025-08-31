@@ -389,9 +389,31 @@ const BecomeSeller = () => {
       }));
 
       // Filter social accounts to only include complete ones
-      const validSocialAccounts = formData.socialAccounts?.filter(account => 
-        account.platform && account.username && account.url
-      ) || [];
+      const validSocialAccounts = Object.entries(formData.socialAccounts || {})
+        .map(([platform, account]) => {
+          // Generate appropriate URL for each platform
+          const getProfileUrl = (platform: string, username: string) => {
+            const baseUrls = {
+              youtube: 'https://youtube.com/@',
+              instagram: 'https://instagram.com/',
+              tiktok: 'https://tiktok.com/@',
+              facebook: 'https://facebook.com/',
+              twitter: 'https://twitter.com/',
+              linkedin: 'https://linkedin.com/in/'
+            };
+            const baseUrl = baseUrls[platform as keyof typeof baseUrls] || `https://${platform}.com/`;
+            return `${baseUrl}${username}`;
+          };
+
+          return {
+            platform,
+            username: account.username,
+            url: getProfileUrl(platform, account.username)
+          };
+        })
+        .filter(account => 
+          account.platform && account.username && account.username.trim() !== ''
+        );
 
       // 5. Send all data to become-seller endpoint
       const res = await fetch(API_ENDPOINTS.USER.BECOME_SELLER, {

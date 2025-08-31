@@ -20,10 +20,11 @@ import Support from './pages/Support';
 import SignInPage from './pages/sign-in';
 import BecomeSeller from './pages/BecomeSeller';
 import HowItWorksPage from './pages/HowItWorks';
+import AdminLogin from './pages/AdminLogin';
 
 const AppRoutes = () => {
   const location = useLocation();
-  const hideHeaderRoutes = ['/seller-dashboard'];
+  const hideHeaderRoutes = ['/seller-dashboard', '/admin', '/admin-login'];
   const shouldShowHeader = !hideHeaderRoutes.includes(location.pathname);
 
   return (
@@ -42,6 +43,7 @@ const AppRoutes = () => {
           <Route path="/seller-dashboard" element={<SellerDashboard />} />
           <Route path="/buyer-dashboard" element={<BuyerDashboard />} />
           <Route path="/admin" element={<AdminPanel />} />
+          <Route path="/admin-login" element={<AdminLogin />} />
           <Route path="/messages" element={<Messages />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/support" element={<Support />} />
